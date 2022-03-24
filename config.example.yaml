@@ -1,0 +1,10 @@
+server: irc.libera.chat:+6697
+nickname: bans
+database: ~/.bans.db
+
+sasl:
+  username: bans
+  password: hunter2
+
+admins:
+  - '*!*@bitbot/launchd'
