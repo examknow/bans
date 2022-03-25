@@ -59,6 +59,15 @@ class Server(BaseServer):
             if (report_channel := await self.config.runtime.get("reportChannel")):
                 await self.send(build("PRIVMSG", [report_channel, msg]))
 
+    async def _request_comment(self, ban_id: int):
+        if (ban := await self.db.bans.get_by_id(ban_id)) is not None:
+            nick = ban.setter.split("!")[0]
+            chan = await self.db.channels.get(ban.channelid)
+            out  = (f"Please comment on action "
+                    f"#{ban.id} ({chan} +{ban.mode}{ban.mask and ' ' + ban.mask})"
+                    f" (/msg {self.nickname} comment {ban.id} +1w trolling)")
+            await self.send(build("NOTICE", [nick, out]))
+
     async def _is_authorized(self, ban: DBBan, caller: Caller):
 
         # only the ban setter and known channel ops can do things
@@ -227,6 +236,7 @@ class Server(BaseServer):
 
             for mode, mask in added:
                 id = await self.db.bans.add(channel.id, line.source, mode, mask)
+                await self._request_comment(id)
                 if (default_duration := await self.config.runtime.get("autoExpire", channel=channel.name)) > 0:
                     await self.db.bans.set_expiry(id, int(time())+default_duration)
             for mode, mask in removed:
