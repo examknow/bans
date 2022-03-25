@@ -91,6 +91,9 @@ class BansTable(DBTable):
 
         return await self._get("WHERE expiry_ts < ? AND remove_ts IS NULL", None, int(time()))
 
+    async def get_last_by_setter(self, setter: str, count: int) -> List[DBBan]:
+        return await self._get("WHERE setter = ? AND remove_ts IS NULL", count, setter)
+
     async def get_id(self,
             channel: str,
             mask: str) -> Optional[DBBan]:

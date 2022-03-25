@@ -227,7 +227,7 @@ class Server(BaseServer):
 
             for mode, mask in added:
                 id = await self.db.bans.add(channel.id, line.source, mode, mask)
-                if (default_duration := await self.config.runtime.get("autoExpire", default=0, channel=channel.name)) > 0:
+                if (default_duration := await self.config.runtime.get("autoExpire", channel=channel.name)) > 0:
                     await self.db.bans.set_expiry(id, int(time())+default_duration)
             for mode, mask in removed:
                 if (id := await self.db.bans.get_id(channel.id, mask)) is not None:
@@ -328,15 +328,22 @@ class Server(BaseServer):
         else:
             return [f"#{args[0]} does not exist or you do not have permission to see it"]
 
-    @usage("<id> [+time] [reason]")
+    @usage("<id>|^ [+time] [reason]")
     async def cmd_comment(self, caller: Caller, sargs: str) -> List[str]:
         args = sargs.split(None, 3)
         if not args:
             raise UsageError("Please provide an id")
-        elif not args[0].isdigit():
+        elif not args[0].isdigit() and args[0][0] != "^":
             raise UsageError("id must be a number")
 
-        id = int(args.pop(0))
+        if args[0][0] == "^":
+            ids = [b.id for b in
+                   await self.db.bans.get_last_by_setter(caller.source, len(args.pop(0)))]
+
+            if not ids:
+                return ["could not find any previous bans from you"]
+        else:
+            ids = [int(args.pop(0))]
         duration = None
         # should the ban duration start from the time of comment or ban placement
         # (~1d = 1 day from ban setting, +1d = 1 day from time of comment)
@@ -358,28 +365,29 @@ class Server(BaseServer):
         if len(args) > 0:
             reason = " ".join(args)
 
-        if ((ban := await self.db.bans.get_by_id(id)) is not None and
-            await self._is_authorized(ban, caller)):
-            if ban.removed is not None:
-                return ["that ban is no longer active"]
-            if duration is not None:
-                now = int(time())
-                if relative_duration:
-                    duration += now
-                else:
-                    if (ban.ts + now) < now:
-                        return ["That ban would already have expired. Please set a longer duration."]
-                    duration += ban.ts
-                await self.db.bans.set_expiry(id, duration)
-                log = f"set ban expiry to \x02{datetime.utcfromtimestamp(duration).isoformat()}\x02"
-                await self.db.comments.add(id, caller.source, caller.account, log)
-            if reason is not None:
-                await self.db.bans.set_reason(id, reason)
-                log = f"set reason to \x1d{reason}\x1d"
-                await self.db.comments.add(id, caller.source, caller.account, log)
-            return ["done!"]
-        else:
-            return [f"#{id} does not exist or you do not have permission to modify it"]
+        for id in ids:
+            if ((ban := await self.db.bans.get_by_id(id)) is not None and
+                await self._is_authorized(ban, caller)):
+                if ban.removed is not None:
+                    return ["that ban is no longer active"]
+                if duration is not None:
+                    now = int(time())
+                    if relative_duration:
+                        duration += now
+                    else:
+                        if (ban.ts + now) < now:
+                            return [f"#{id} would already have expired. Please set a longer duration."]
+                        duration += ban.ts
+                    await self.db.bans.set_expiry(id, duration)
+                    log = f"set ban expiry to \x02{datetime.utcfromtimestamp(duration).isoformat()}\x02"
+                    await self.db.comments.add(id, caller.source, caller.account, log)
+                if reason is not None:
+                    await self.db.bans.set_reason(id, reason)
+                    log = f"set reason to \x1d{reason}\x1d"
+                    await self.db.comments.add(id, caller.source, caller.account, log)
+                return [f"#{id} has been commented"]
+            else:
+                return [f"#{id} does not exist or you do not have permission to modify it"]
 
     async def cmd_join(self, caller: Caller, sargs: str):
         args = sargs.split(None, 3)
